@@ -5,8 +5,23 @@ data JSON = N Double | S String | B Bool | Null | L [JSON] | O [(String, JSON)]
 
 -- type Parser a = (a, String)
 
-data Parser a = Success a String | Error
+data Result a = Success a String | Error
     deriving Show
+
+newtype Parser a = Parser (String -> Result a)
+
+instance Monad Parser where
+    (>>=) :: Parser a -> (a -> Parser b) -> Parser b
+    (Parser p) >>= f = Parser $ \s ->
+        case p s of
+            Success x s' -> q s' where Parser q = f x
+            Error -> Error
+
+    return :: a -> Parser a
+    return x = Parser (\_ -> Success x "")
+
+    fail :: String -> Parser a
+    fail _ = Parser (\_ -> Error)
 
 -- O [("key", I 1)]
 
