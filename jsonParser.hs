@@ -1,33 +1,62 @@
+{-#LANGUAGE DeriveFunctor #-}
 -- our home-grown JSON parser!
 
 data JSON = N Double | S String | B Bool | Null | L [JSON] | O [(String, JSON)]
     deriving (Show, Eq)
 
--- type Parser a = (a, String)
+type Parser a = Result a
 
 data Result a = Success a String | Error
-    deriving Show
+    deriving (Show, Functor)
 
-newtype Parser a = Parser (String -> Result a)
+newtype ParserM a = ParserM (String -> Result a) deriving Functor
 
-instance Monad Parser where
-    (>>=) :: Parser a -> (a -> Parser b) -> Parser b
-    (Parser p) >>= f = Parser $ \s ->
+instance Applicative ParserM where
+    pure x = ParserM (\s -> Success x s)
+
+    -- (<*>) :: ParserM (a -> b) -> ParserM a -> ParserM b
+    ParserM p <*> ParserM q = ParserM $ \s ->
         case p s of
-            Success x s' -> q s' where Parser q = f x
+            Success f s' -> case q s' of
+                Success x s'' -> Success (f x) s''
+                Error -> Error
             Error -> Error
 
-    return :: a -> Parser a
-    return x = Parser (\_ -> Success x "")
+instance Monad ParserM where
+    -- (>>=) :: ParserM a -> (a -> ParserM b) -> ParserM b
+    (ParserM p) >>= f = ParserM $ \s ->
+        case p s of
+            Success x s' -> q s' where ParserM q = f x
+            Error -> Error
 
-    fail :: String -> Parser a
-    fail _ = Parser (\_ -> Error)
+    -- return :: a -> ParserM a
+    -- return should default to pure
+
+
+    -- fail :: String -> ParserM a
+    fail _ = ParserM (\_ -> Error)
+
+char :: Char -> ParserM Char
+char c = ParserM $ \s -> case s of
+    [] -> Error
+    (x:xs) -> if x == c then Success x xs else Error
+
+string :: String -> ParserM String
+string s = mapM char s
+
+
+runParser :: ParserM a -> String -> Result a
+runParser (ParserM f) s = f s
+
+
+
 
 -- O [("key", I 1)]
 
 -- {"key": "value", "key2": 1}
 
 -- starting from first character, it can start with {, [, ", 0-9, -
+
 
 topParse :: String -> Parser JSON
 topParse s = if eatWhitespace rest == "" then Success json "" else Error
@@ -40,16 +69,17 @@ parse s@('-':_) = parseNumber s
 parse s@('"':_) = parseString s
 parse s@('t':_) = parseBool s
 parse s@('f':_) = parseBool s
-parse s@('n':_) = parseNull s
+parse s@('n':_) = runParser parseNull s
 parse (' ':xs) = parse xs
 parse ('\n':xs) = parse xs
 parse ('\t':xs) = parse xs
 -- parse s = parseNumber s
 parse _ = Error
 
-parseNull :: String -> Parser JSON
-parseNull ('n':'u':'l':'l':xs) = Success Null xs
-parseNull _ = Error
+parseNull :: ParserM JSON
+parseNull = do
+    string "null"
+    return Null
 
 parseBool :: String -> Parser JSON
 parseBool ('t':'r':'u':'e':xs) = Success (B True) xs
@@ -60,6 +90,7 @@ parseString :: String -> Parser JSON
 parseString ('"':xs) = Success (S body) xs'
     where Success body ('"':xs') = parseBody xs
 parseString _ = Error
+
 
 parseBody :: String -> Parser String
 parseBody s@('"':xs) = Success "" s
