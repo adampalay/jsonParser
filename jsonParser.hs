@@ -44,11 +44,50 @@ char c = ParserM $ \s -> case s of
 string :: String -> ParserM String
 string s = mapM char s
 
-
 runParser :: ParserM a -> String -> Result a
 runParser (ParserM f) s = f s
 
+parseNull :: ParserM JSON
+parseNull = do
+    string "null"
+    return Null
 
+parseTrue :: ParserM JSON
+parseTrue = do
+    string "true"
+    return $ B True
+
+parseFalse :: ParserM JSON
+parseFalse = do
+    string "false"
+    return $ B False
+
+-- parseBool :: ParserM JSON
+-- parseBool
+
+(<|>) :: ParserM a -> ParserM a -> ParserM a
+(<|>) (ParserM f) (ParserM g) = ParserM $ \s -> case f s of
+    Error -> g s
+    result -> result
+
+parseBool :: ParserM JSON
+parseBool = parseTrue <|> parseFalse
+
+parseString :: ParserM JSON
+parseString = do
+    char '"'
+    body <- parseUntil $ char '"'
+    char '"'
+    return $ S body
+
+parseUntil :: ParserM a -> ParserM String
+parseUntil p@(ParserM f) = ParserM $ \s -> case s of
+    "" -> Success "" ""
+    (x:xs) -> case f s of
+        Error -> case runParser (parseUntil p) xs of
+            Success xs' remainder -> Success (x:xs') remainder
+            Error -> Error
+        Success _ _ -> Success "" (x:xs)
 
 
 -- O [("key", I 1)]
@@ -66,9 +105,9 @@ parse :: String -> Parser JSON
 parse s@('{':_) = parseObject s
 parse s@('[':_) = parseList s
 parse s@('-':_) = parseNumber s
-parse s@('"':_) = parseString s
-parse s@('t':_) = parseBool s
-parse s@('f':_) = parseBool s
+parse s@('"':_) = runParser parseString s
+parse s@('t':_) = runParser parseBool s
+parse s@('f':_) = runParser parseBool s
 parse s@('n':_) = runParser parseNull s
 parse (' ':xs) = parse xs
 parse ('\n':xs) = parse xs
@@ -76,20 +115,17 @@ parse ('\t':xs) = parse xs
 -- parse s = parseNumber s
 parse _ = Error
 
-parseNull :: ParserM JSON
-parseNull = do
-    string "null"
-    return Null
 
-parseBool :: String -> Parser JSON
-parseBool ('t':'r':'u':'e':xs) = Success (B True) xs
-parseBool ('f':'a':'l':'s':'e':xs) = Success (B False) xs
-parseBool _ = Error
 
-parseString :: String -> Parser JSON
-parseString ('"':xs) = Success (S body) xs'
-    where Success body ('"':xs') = parseBody xs
-parseString _ = Error
+-- parseBool :: String -> Parser JSON
+-- parseBool ('t':'r':'u':'e':xs) = Success (B True) xs
+-- parseBool ('f':'a':'l':'s':'e':xs) = Success (B False) xs
+-- parseBool _ = Error
+
+-- parseString :: String -> Parser JSON
+-- parseString ('"':xs) = Success (S body) xs'
+--     where Success body ('"':xs') = parseBody xs
+-- parseString _ = Error
 
 
 parseBody :: String -> Parser String
@@ -141,7 +177,7 @@ parseObjectPairs s = Success (pair:pairs) xs'
 parsePair :: String -> Parser (String, JSON)
 parsePair s = Success (key, value) xsFinal
     where
-        Success (S key) xs = parseString s
+        Success (S key) xs = runParser parseString s
         xs' = (eatWhitespace . (eat ':') . eatWhitespace) xs
         Success value xsFinal = parse xs'
 
