@@ -37,9 +37,9 @@ instance Monad ParserM where
     fail _ = ParserM (\_ -> Error)
 
 char :: Char -> ParserM Char
-char c = ParserM $ \s -> case s of
-    [] -> Error
-    (x:xs) -> if x == c then Success x xs else Error
+char c = do
+    c' <- readChar
+    if c == c' then return c' else fail $ "expected " ++ [c]
 
 string :: String -> ParserM String
 string s = mapM char s
@@ -62,8 +62,6 @@ parseFalse = do
     string "false"
     return $ B False
 
--- parseBool :: ParserM JSON
--- parseBool
 
 (<|>) :: ParserM a -> ParserM a -> ParserM a
 (<|>) (ParserM f) (ParserM g) = ParserM $ \s -> case f s of
@@ -76,18 +74,54 @@ parseBool = parseTrue <|> parseFalse
 parseString :: ParserM JSON
 parseString = do
     char '"'
-    body <- parseUntil $ char '"'
+    body <- until' $ char '"'
     char '"'
     return $ S body
 
-parseUntil :: ParserM a -> ParserM String
-parseUntil p@(ParserM f) = ParserM $ \s -> case s of
-    "" -> Success "" ""
-    (x:xs) -> case f s of
-        Error -> case runParser (parseUntil p) xs of
-            Success xs' remainder -> Success (x:xs') remainder
-            Error -> Error
-        Success _ _ -> Success "" (x:xs)
+readChar :: ParserM Char
+readChar = ParserM $ \s -> case s of
+    [] -> Error
+    (x:xs) -> Success x xs
+
+until' :: ParserM a -> ParserM String
+until' p = do
+    x <- peek p
+    case x of
+        Nothing -> do
+            c <- readChar
+            cs <- until' p
+            return (c:cs)
+        Just _ -> return []
+
+
+peek :: ParserM a -> ParserM (Maybe a)
+peek p = ParserM $ \s -> case runParser p s of
+    Success x _ -> Success (Just x) s
+    Error -> Success Nothing s
+
+
+optional :: ParserM a -> ParserM (Maybe a)
+optional p = (Just <$> p) <|> (pure Nothing)
+
+zeroOrMore:: ParserM a -> ParserM [a]
+zeroOrMore p = do
+    x <- optional p
+    case x of
+        Nothing -> return []
+        Just x' -> do
+            xs <- zeroOrMore p
+            return (x':xs)
+
+oneOrMore:: ParserM a -> ParserM [a]
+oneOrMore p = do
+    x <- p
+    xs <- zeroOrMore p
+    return (x:xs)
+
+
+
+
+-- parseList :: ParserM JSON
 
 
 -- O [("key", I 1)]
