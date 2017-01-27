@@ -49,9 +49,7 @@ null' = do
     return Null
 
 parseTrue :: ParserM JSON
-parseTrue = do
-    literal "true"
-    return $ B True
+parseTrue = literal "true" >> (return (B True))
 
 parseFalse :: ParserM JSON
 parseFalse = do
